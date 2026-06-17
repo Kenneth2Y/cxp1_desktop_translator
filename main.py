@@ -8,6 +8,7 @@ import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
+from tkinter import font as tkfont
 from tkinter import messagebox, ttk
 
 import httpx
@@ -19,6 +20,9 @@ BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
 DEFAULT_GEOMETRY = "980x720+120+120"
+DEFAULT_FONT_SIZE = 11
+MIN_FONT_SIZE = 9
+MAX_FONT_SIZE = 22
 TRANSLATION_LOG = Path(__file__).resolve().parent / "trans_log.txt"
 
 SYSTEM_PROMPT = (
@@ -46,6 +50,8 @@ def default_config() -> dict[str, object]:
         "proxy_url": DEFAULT_PROXY,
         "debug_enabled": True,
         "model": DEFAULT_MODEL,
+        "font_size": DEFAULT_FONT_SIZE,
+        "topmost": False,
     }
 
 
@@ -92,8 +98,11 @@ class TranslatorApp:
         self.proxy_enabled_var = tk.BooleanVar(value=bool(self.config.get("proxy_enabled", True)))
         self.proxy_url_var = tk.StringVar(value=str(self.config.get("proxy_url", DEFAULT_PROXY)))
         self.debug_enabled_var = tk.BooleanVar(value=bool(self.config.get("debug_enabled", True)))
+        self.topmost_var = tk.BooleanVar(value=bool(self.config.get("topmost", False)))
+        self.font_size = self._read_font_size()
         self.status_var = tk.StringVar(value="就绪")
 
+        self._apply_font_size()
         self._build_ui()
         self._apply_window_settings()
         self._bind_events()
@@ -136,27 +145,48 @@ class TranslatorApp:
         ttk.Label(body, text="原文").grid(row=0, column=0, sticky="w")
         ttk.Label(body, text="译文").grid(row=0, column=1, sticky="w", padx=(8, 0))
 
-        self.input_text = tk.Text(body, wrap="word", undo=True, height=18)
-        self.output_text = tk.Text(body, wrap="word", height=18)
-        self.input_text.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(4, 0))
-        self.output_text.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(4, 0))
+        input_frame = ttk.Frame(body)
+        output_frame = ttk.Frame(body)
+        input_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(4, 0))
+        output_frame.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(4, 0))
+        input_frame.columnconfigure(0, weight=1)
+        input_frame.rowconfigure(0, weight=1)
+        output_frame.columnconfigure(0, weight=1)
+        output_frame.rowconfigure(0, weight=1)
+
+        self.input_text = tk.Text(input_frame, wrap="word", undo=True, height=18)
+        self.output_text = tk.Text(output_frame, wrap="word", height=18)
+        input_scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=self.input_text.yview)
+        output_scrollbar = ttk.Scrollbar(output_frame, orient="vertical", command=self.output_text.yview)
+        self.input_text.configure(yscrollcommand=input_scrollbar.set)
+        self.output_text.configure(yscrollcommand=output_scrollbar.set)
+        self.input_text.grid(row=0, column=0, sticky="nsew")
+        input_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.output_text.grid(row=0, column=0, sticky="nsew")
+        output_scrollbar.grid(row=0, column=1, sticky="ns")
 
         controls = ttk.Frame(self.root, padding=(12, 4, 12, 6))
         controls.grid(row=2, column=0, sticky="ew")
-        controls.columnconfigure(2, weight=1)
+        controls.columnconfigure(6, weight=1)
 
         self.translate_button = ttk.Button(controls, text="翻译", command=self.start_translation)
         self.translate_button.grid(row=0, column=0, padx=(0, 8))
         ttk.Button(controls, text="打开历史", command=self.open_history).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=2, padx=(0, 8))
-        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=3, sticky="w")
+        ttk.Checkbutton(controls, text="置顶", variable=self.topmost_var, command=self.toggle_topmost).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(controls, text="字体-", width=7, command=lambda: self.change_font_size(-1)).grid(row=0, column=3, padx=(0, 8))
+        ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=5, padx=(0, 8))
+        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=6, sticky="w")
 
         self.debug_frame = ttk.LabelFrame(self.root, text="Debug", padding=(12, 6, 12, 10))
         self.debug_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 10))
         self.debug_frame.columnconfigure(0, weight=1)
         self.debug_frame.rowconfigure(0, weight=1)
         self.debug_text = tk.Text(self.debug_frame, wrap="word", height=8, state="disabled")
+        debug_scrollbar = ttk.Scrollbar(self.debug_frame, orient="vertical", command=self.debug_text.yview)
+        self.debug_text.configure(yscrollcommand=debug_scrollbar.set)
         self.debug_text.grid(row=0, column=0, sticky="nsew")
+        debug_scrollbar.grid(row=0, column=1, sticky="ns")
 
         if not self.debug_enabled_var.get():
             self.debug_frame.grid_remove()
@@ -165,6 +195,7 @@ class TranslatorApp:
         geometry = str(self.config.get("window_geometry", DEFAULT_GEOMETRY))
         self.root.geometry(geometry)
         self.root.resizable(False, False)
+        self.root.attributes("-topmost", self.topmost_var.get())
 
     def _bind_events(self) -> None:
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -193,6 +224,8 @@ class TranslatorApp:
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
                 "window_geometry": self.root.geometry(),
+                "font_size": self.font_size,
+                "topmost": self.topmost_var.get(),
             }
         )
         self.model_var.set(str(self.config["model"]))
@@ -204,6 +237,47 @@ class TranslatorApp:
             self.log_debug(f"INFO proxy_enabled {self.proxy_url_var.get().strip()}")
         else:
             self.log_debug("INFO proxy_disabled")
+
+    def toggle_topmost(self) -> None:
+        self.root.attributes("-topmost", self.topmost_var.get())
+        self.apply_settings()
+        state = "enabled" if self.topmost_var.get() else "disabled"
+        self.log_debug(f"INFO topmost_{state}")
+
+    def change_font_size(self, delta: int) -> None:
+        new_size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, self.font_size + delta))
+        if new_size == self.font_size:
+            self.log_debug(f"INFO font_size_limit size={self.font_size}")
+            return
+        self.font_size = new_size
+        self._apply_font_size()
+        self.apply_settings()
+        self.log_debug(f"INFO font_size_changed size={self.font_size}")
+
+    def _read_font_size(self) -> int:
+        try:
+            return int(self.config.get("font_size", DEFAULT_FONT_SIZE))
+        except (TypeError, ValueError):
+            return DEFAULT_FONT_SIZE
+
+    def _apply_font_size(self) -> None:
+        self.font_size = max(MIN_FONT_SIZE, min(MAX_FONT_SIZE, self.font_size))
+        for font_name in (
+            "TkDefaultFont",
+            "TkTextFont",
+            "TkFixedFont",
+            "TkMenuFont",
+            "TkHeadingFont",
+            "TkCaptionFont",
+            "TkSmallCaptionFont",
+            "TkIconFont",
+            "TkTooltipFont",
+        ):
+            try:
+                named_font = tkfont.nametofont(font_name)
+                named_font.configure(size=self.font_size)
+            except tk.TclError:
+                pass
 
     def toggle_debug(self) -> None:
         if self.debug_enabled_var.get():
@@ -352,6 +426,8 @@ class TranslatorApp:
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
                 "window_geometry": self.root.geometry(),
+                "font_size": self.font_size,
+                "topmost": self.topmost_var.get(),
             }
         )
         save_config(self.config)

@@ -1,0 +1,41 @@
+# Agent 工作说明
+
+这个项目是一个 Python Tkinter 桌面英汉 / 汉英翻译器，使用 POE 的 OpenAI-compatible API。
+
+## 项目约定
+
+- 主程序是 `main.py`，尽量保持轻量，不引入复杂框架。
+- 默认模型是 `gpt-5.3-instant`，但界面里允许用户修改模型名。
+- 默认代理是 `socks5://127.0.0.1:10808`，用于配合本机 V2RAYN 等代理工具。
+- 用户配置保存在 `%APPDATA%\cxp1_desktop_translator\config.json`，不要把 API Key 写进源码。
+- 翻译历史写入项目目录的 `trans_log.txt`，该文件包含用户内容，必须保持在 `.gitignore` 中。
+- Debug 信息可以保留，但不要记录完整 API Key；最多显示 key 是否存在和后四位。
+
+## 开发与验证
+
+- 推荐使用项目虚拟环境运行：
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+```
+
+- 修改后至少运行：
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile main.py
+rg "sk-poe"
+```
+
+- 如果需要安装依赖，使用：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+## Git 与发布习惯
+
+- 每完成一个可用版本就 commit 一次。
+- commit message 使用一句简短中文，例如：`增加置顶和字号调整`。
+- push 前检查 `git status --short --ignored`，确认只提交源码、文档和依赖声明。
+- 不提交 `.venv/`、`__pycache__/`、`trans_log.txt`、本机配置或任何真实 API Key。
+- 远程仓库：`https://github.com/Kenneth2Y/cxp1_desktop_translator.git`。
