@@ -7,9 +7,14 @@
 - 主程序是 `main.py`，尽量保持轻量，不引入复杂框架。
 - 默认模型是 `gpt-5.3-instant`，但界面里允许用户修改模型名。
 - 默认代理是 `socks5://127.0.0.1:10808`，用于配合本机 V2RAYN 等代理工具。
+- 代理功能必须保留，但用户可以不勾选代理；程序只在点击“翻译”时联网。
+- 模型名称保留手写输入，不做自动拉取 POE 模型列表。
+- UI 采用 Windows 深色主题风格：界面字体 `Segoe UI`，正文 `Microsoft YaHei UI`，Debug `Consolas`。
+- 右下角 `K.Y.` 是作者标记，保留在界面中。
 - 用户配置保存在 `%APPDATA%\cxp1_desktop_translator\config.json`，不要把 API Key 写进源码。
 - 翻译历史写入项目目录的 `trans_log.txt`，该文件包含用户内容，必须保持在 `.gitignore` 中。
 - Debug 信息可以保留，但不要记录完整 API Key；最多显示 key 是否存在和后四位。
+- 项目授权使用 MIT License。
 
 ## 开发与验证
 

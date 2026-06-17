@@ -24,6 +24,24 @@ DEFAULT_FONT_SIZE = 11
 MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 22
 TRANSLATION_LOG = Path(__file__).resolve().parent / "trans_log.txt"
+APP_MARK = "K.Y."
+
+COLOR_BG = "#202020"
+COLOR_PANEL = "#242424"
+COLOR_PANEL_ALT = "#2b2b2b"
+COLOR_FIELD = "#1f1f1f"
+COLOR_BORDER = "#3c3c3c"
+COLOR_TEXT = "#f2f2f2"
+COLOR_TEXT_MUTED = "#c8c8c8"
+COLOR_ACCENT = "#5aa0e6"
+COLOR_BUTTON = "#303030"
+COLOR_BUTTON_ACTIVE = "#3a3a3a"
+COLOR_SELECT_BG = "#345f8f"
+COLOR_SELECT_FG = "#ffffff"
+
+UI_FONT_FAMILY = "Segoe UI"
+TEXT_FONT_FAMILY = "Microsoft YaHei UI"
+MONO_FONT_FAMILY = "Consolas"
 
 SYSTEM_PROMPT = (
     "你是一个中、英文翻译的专家。不是字面翻译，而是要充分理解词语、句子、段落的真实含义，"
@@ -58,13 +76,13 @@ def default_config() -> dict[str, object]:
 def load_config() -> dict[str, object]:
     config = default_config()
     config_path = get_config_path()
-    if config_path.exists():
-        try:
+    try:
+        if config_path.exists():
             loaded = json.loads(config_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 config.update(loaded)
-        except (OSError, json.JSONDecodeError):
-            pass
+    except (OSError, json.JSONDecodeError):
+        pass
     return config
 
 
@@ -103,6 +121,7 @@ class TranslatorApp:
         self.status_var = tk.StringVar(value="就绪")
 
         self._apply_font_size()
+        self._setup_theme()
         self._build_ui()
         self._apply_window_settings()
         self._bind_events()
@@ -115,6 +134,7 @@ class TranslatorApp:
 
     def _build_ui(self) -> None:
         self.root.title("英汉 / 汉英翻译器")
+        self.root.configure(bg=COLOR_BG)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
@@ -154,8 +174,8 @@ class TranslatorApp:
         output_frame.columnconfigure(0, weight=1)
         output_frame.rowconfigure(0, weight=1)
 
-        self.input_text = tk.Text(input_frame, wrap="word", undo=True, height=18)
-        self.output_text = tk.Text(output_frame, wrap="word", height=18)
+        self.input_text = self._create_text_widget(input_frame, undo=True, height=18)
+        self.output_text = self._create_text_widget(output_frame, height=18)
         input_scrollbar = ttk.Scrollbar(input_frame, orient="vertical", command=self.input_text.yview)
         output_scrollbar = ttk.Scrollbar(output_frame, orient="vertical", command=self.output_text.yview)
         self.input_text.configure(yscrollcommand=input_scrollbar.set)
@@ -177,12 +197,13 @@ class TranslatorApp:
         ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=4, padx=(0, 8))
         ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=5, padx=(0, 8))
         ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=6, sticky="w")
+        ttk.Label(controls, text=APP_MARK, style="Brand.TLabel").grid(row=0, column=7, sticky="e")
 
         self.debug_frame = ttk.LabelFrame(self.root, text="Debug", padding=(12, 6, 12, 10))
         self.debug_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 10))
         self.debug_frame.columnconfigure(0, weight=1)
         self.debug_frame.rowconfigure(0, weight=1)
-        self.debug_text = tk.Text(self.debug_frame, wrap="word", height=8, state="disabled")
+        self.debug_text = self._create_text_widget(self.debug_frame, height=8, state="disabled", mono=True)
         debug_scrollbar = ttk.Scrollbar(self.debug_frame, orient="vertical", command=self.debug_text.yview)
         self.debug_text.configure(yscrollcommand=debug_scrollbar.set)
         self.debug_text.grid(row=0, column=0, sticky="nsew")
@@ -190,6 +211,99 @@ class TranslatorApp:
 
         if not self.debug_enabled_var.get():
             self.debug_frame.grid_remove()
+
+    def _setup_theme(self) -> None:
+        self.style = ttk.Style(self.root)
+        try:
+            self.style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        self.style.configure(".", background=COLOR_BG, foreground=COLOR_TEXT, fieldbackground=COLOR_FIELD)
+        self.style.configure("TFrame", background=COLOR_BG)
+        self.style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
+        self.style.configure("Brand.TLabel", background=COLOR_BG, foreground=COLOR_TEXT_MUTED)
+        self.style.configure("TLabelframe", background=COLOR_BG, bordercolor=COLOR_BORDER)
+        self.style.configure("TLabelframe.Label", background=COLOR_BG, foreground=COLOR_TEXT_MUTED)
+        self.style.configure(
+            "TButton",
+            background=COLOR_BUTTON,
+            foreground=COLOR_TEXT,
+            bordercolor=COLOR_BORDER,
+            focusthickness=1,
+            focuscolor=COLOR_ACCENT,
+            padding=(12, 5),
+        )
+        self.style.map(
+            "TButton",
+            background=[("active", COLOR_BUTTON_ACTIVE), ("pressed", COLOR_PANEL_ALT)],
+            foreground=[("disabled", "#777777")],
+        )
+        self.style.configure(
+            "TCheckbutton",
+            background=COLOR_BG,
+            foreground=COLOR_TEXT,
+            focuscolor=COLOR_ACCENT,
+        )
+        self.style.map(
+            "TCheckbutton",
+            background=[("active", COLOR_BG)],
+            foreground=[("disabled", "#777777")],
+        )
+        self.style.configure(
+            "TEntry",
+            fieldbackground=COLOR_FIELD,
+            foreground=COLOR_TEXT,
+            insertcolor=COLOR_TEXT,
+            bordercolor=COLOR_BORDER,
+            lightcolor=COLOR_BORDER,
+            darkcolor=COLOR_BORDER,
+        )
+        self.style.map(
+            "TEntry",
+            fieldbackground=[("focus", COLOR_FIELD)],
+            bordercolor=[("focus", COLOR_ACCENT)],
+        )
+        self.style.configure(
+            "Vertical.TScrollbar",
+            background=COLOR_PANEL_ALT,
+            troughcolor=COLOR_FIELD,
+            bordercolor=COLOR_BORDER,
+            arrowcolor=COLOR_TEXT_MUTED,
+            gripcount=0,
+        )
+        self.style.map("Vertical.TScrollbar", background=[("active", COLOR_BUTTON_ACTIVE)])
+
+    def _create_text_widget(
+        self,
+        parent: tk.Widget,
+        *,
+        undo: bool = False,
+        height: int = 8,
+        state: str = "normal",
+        mono: bool = False,
+    ) -> tk.Text:
+        font_name = "TkFixedFont" if mono else "TkTextFont"
+        return tk.Text(
+            parent,
+            wrap="word",
+            undo=undo,
+            height=height,
+            state=state,
+            font=font_name,
+            bg=COLOR_FIELD,
+            fg=COLOR_TEXT,
+            insertbackground=COLOR_TEXT,
+            selectbackground=COLOR_SELECT_BG,
+            selectforeground=COLOR_SELECT_FG,
+            relief="solid",
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=COLOR_BORDER,
+            highlightcolor=COLOR_ACCENT,
+            padx=8,
+            pady=6,
+        )
 
     def _apply_window_settings(self) -> None:
         geometry = str(self.config.get("window_geometry", DEFAULT_GEOMETRY))
@@ -275,7 +389,12 @@ class TranslatorApp:
         ):
             try:
                 named_font = tkfont.nametofont(font_name)
-                named_font.configure(size=self.font_size)
+                if font_name == "TkFixedFont":
+                    named_font.configure(family=MONO_FONT_FAMILY, size=self.font_size)
+                elif font_name == "TkTextFont":
+                    named_font.configure(family=TEXT_FONT_FAMILY, size=self.font_size)
+                else:
+                    named_font.configure(family=UI_FONT_FAMILY, size=self.font_size)
             except tk.TclError:
                 pass
 
