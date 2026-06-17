@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "1.9"
+APP_VERSION = "2.0"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -118,7 +118,6 @@ class TranslatorApp:
         self.active_client: OpenAI | None = None
         self.active_http_client: httpx.Client | None = None
         self.tray_icon: pystray.Icon | None = None
-        self.taskbar_owner: tk.Toplevel | None = None
         self.is_exiting = False
 
         self.api_key_var = tk.StringVar(value=str(self.config.get("api_key", "")))
@@ -132,7 +131,6 @@ class TranslatorApp:
 
         self._apply_font_size()
         self._setup_theme()
-        self.setup_hidden_owner()
         self._build_ui()
         self._apply_window_settings()
         self._bind_events()
@@ -338,17 +336,6 @@ class TranslatorApp:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.input_text.bind("<Control-Return>", lambda _event: self.start_translation())
 
-    def setup_hidden_owner(self) -> None:
-        if sys.platform != "win32":
-            return
-        try:
-            self.taskbar_owner = tk.Toplevel(self.root)
-            self.taskbar_owner.withdraw()
-            self.taskbar_owner.title("")
-            self.root.transient(self.taskbar_owner)
-        except tk.TclError as exc:
-            self.log_startup_debug(f"ERROR hidden_owner_failed {self.short_error(exc)}")
-
     def apply_toolwindow_style(self) -> None:
         if sys.platform != "win32":
             return
@@ -420,12 +407,14 @@ class TranslatorApp:
             self.hide_window()
 
     def show_window(self) -> None:
+        self.root.state("normal")
         self.root.deiconify()
+        self.root.update_idletasks()
         self.root.lift()
         self.root.focus_force()
         self.root.attributes("-topmost", self.topmost_var.get())
         self.apply_toolwindow_style()
-        self.root.after(50, self.hide_from_taskbar)
+        self.root.after(80, self.hide_from_taskbar)
         self.log_debug("INFO window_shown")
 
     def hide_window(self) -> None:
@@ -696,12 +685,6 @@ class TranslatorApp:
             except Exception:
                 pass
             self.tray_icon = None
-        if self.taskbar_owner is not None:
-            try:
-                self.taskbar_owner.destroy()
-            except tk.TclError:
-                pass
-            self.taskbar_owner = None
         self.root.destroy()
 
 
