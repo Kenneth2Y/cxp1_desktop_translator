@@ -2,7 +2,7 @@
 
 一个轻量的 Python Tkinter 桌面翻译小工具。输入英文输出中文，输入中文输出英文。默认使用 POE 的 OpenAI-compatible Chat Completions API 和 `gpt-5.3-instant`。
 
-当前版本：`v1.7`
+当前版本：`v1.8`
 
 ## 安装
 
@@ -55,6 +55,7 @@ shell:startup
 - “字体+”和“字体-”会同步调整界面、按钮、输入框、译文框和 Debug 区域的字号。
 - 原文、译文和 Debug 区域都有竖向滚动条；文本较长时也可以使用鼠标滚轮或方向键浏览。
 - “退出”按钮会保存窗口位置、字号、置顶状态、代理设置等配置后关闭程序。
+- 程序会使用 `icon.png` 显示在 Windows 系统托盘，窗口不占用任务栏；右键托盘图标可显示/隐藏或退出。
 - 界面默认使用接近 Windows 记事本的深色主题，适合深色桌面环境。
 - Windows 下界面字体使用 `Segoe UI`，原文/译文使用 `Microsoft YaHei UI`，Debug 使用 `Consolas`。这些都是 Windows 常见自带字体，便于兼容。
 - 右下角 `K.Y.` 是作者标记，写在界面中。

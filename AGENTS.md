@@ -12,6 +12,8 @@
 - 模型名称保留手写输入，不做自动拉取 POE 模型列表。
 - UI 采用 Windows 深色主题风格：界面字体 `Segoe UI`，正文 `Microsoft YaHei UI`，Debug `Consolas`。
 - 右下角 `K.Y.` 是作者标记，保留在界面中。
+- `icon.png` 是 Windows 系统托盘图标，需要提交；图片较大也没关系，运行时会缩放到托盘尺寸。
+- 窗口关闭按钮隐藏到托盘，底部“退出”和托盘菜单“退出”才是真退出。
 - 用户配置保存在 `%APPDATA%\cxp1_desktop_translator\config.json`，不要把 API Key 写进源码。
 - 翻译历史写入项目目录的 `trans_log.txt`，该文件包含用户内容，必须保持在 `.gitignore` 中。
 - Debug 信息可以保留，但不要记录完整 API Key；最多显示 key 是否存在和后四位。

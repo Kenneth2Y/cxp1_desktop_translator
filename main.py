@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import queue
 import re
+import sys
 import threading
 import tkinter as tk
 from datetime import datetime
@@ -12,11 +14,13 @@ from tkinter import font as tkfont
 from tkinter import messagebox, ttk
 
 import httpx
+import pystray
+from PIL import Image
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AuthenticationError, OpenAI, OpenAIError
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "1.7"
+APP_VERSION = "1.8"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -25,6 +29,7 @@ DEFAULT_FONT_SIZE = 11
 MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 22
 TRANSLATION_LOG = Path(__file__).resolve().parent / "trans_log.txt"
+TRAY_ICON_PATH = Path(__file__).resolve().parent / "icon.png"
 APP_MARK = "K.Y."
 ACTION_BUTTON_WIDTH = 8
 
@@ -112,6 +117,8 @@ class TranslatorApp:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.active_client: OpenAI | None = None
         self.active_http_client: httpx.Client | None = None
+        self.tray_icon: pystray.Icon | None = None
+        self.is_exiting = False
 
         self.api_key_var = tk.StringVar(value=str(self.config.get("api_key", "")))
         self.model_var = tk.StringVar(value=str(self.config.get("model", DEFAULT_MODEL)))
@@ -127,6 +134,7 @@ class TranslatorApp:
         self._build_ui()
         self._apply_window_settings()
         self._bind_events()
+        self.root.after(250, self.setup_tray)
 
         self.log_debug("INFO config_loaded")
         self.log_debug(f"INFO api_key {mask_key(self.api_key_var.get().strip())}")
@@ -207,7 +215,7 @@ class TranslatorApp:
         ttk.Button(controls, text="历史", width=ACTION_BUTTON_WIDTH, command=self.open_history).grid(row=0, column=1, padx=(0, 8))
         ttk.Button(controls, text="字体-", width=ACTION_BUTTON_WIDTH, command=lambda: self.change_font_size(-1)).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(controls, text="字体+", width=ACTION_BUTTON_WIDTH, command=lambda: self.change_font_size(1)).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(controls, text="退出", width=ACTION_BUTTON_WIDTH, command=self.on_close).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(controls, text="退出", width=ACTION_BUTTON_WIDTH, command=self.exit_app).grid(row=0, column=4, padx=(0, 8))
         ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=5, sticky="w")
         ttk.Label(controls, text=f"v{APP_VERSION}  {APP_MARK}", style="Brand.TLabel").grid(row=0, column=6, sticky="e")
 
@@ -324,8 +332,79 @@ class TranslatorApp:
         self.root.attributes("-topmost", self.topmost_var.get())
 
     def _bind_events(self) -> None:
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.input_text.bind("<Control-Return>", lambda _event: self.start_translation())
+
+    def setup_tray(self) -> None:
+        try:
+            image = self.load_tray_image()
+            menu = pystray.Menu(
+                pystray.MenuItem("显示/隐藏", self.on_tray_toggle, default=True),
+                pystray.MenuItem("退出", self.on_tray_exit),
+            )
+            self.tray_icon = pystray.Icon(APP_NAME, image, f"英汉 / 汉英翻译器 v{APP_VERSION}", menu)
+            self.tray_icon.run_detached()
+            self.hide_from_taskbar()
+            self.log_debug("INFO tray_started")
+        except Exception as exc:
+            self.log_debug(f"ERROR tray_failed {self.short_error(exc)}")
+
+    def load_tray_image(self) -> Image.Image:
+        if TRAY_ICON_PATH.exists():
+            image = Image.open(TRAY_ICON_PATH).convert("RGBA")
+        else:
+            image = Image.new("RGBA", (64, 64), COLOR_ACCENT)
+        return image.resize((64, 64), Image.Resampling.LANCZOS)
+
+    def hide_from_taskbar(self) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            self.root.update_idletasks()
+            hwnd = self.root.winfo_id()
+            user32 = ctypes.windll.user32
+            gwl_exstyle = -20
+            ws_ex_toolwindow = 0x00000080
+            ws_ex_appwindow = 0x00040000
+            get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+            set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            style = get_window_long(hwnd, gwl_exstyle)
+            style = (style & ~ws_ex_appwindow) | ws_ex_toolwindow
+            set_window_long(hwnd, gwl_exstyle, style)
+            swp_nosize = 0x0001
+            swp_nomove = 0x0002
+            swp_nozorder = 0x0004
+            swp_framechanged = 0x0020
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, swp_nosize | swp_nomove | swp_nozorder | swp_framechanged)
+            self.root.withdraw()
+            self.root.after(10, self.root.deiconify)
+        except Exception as exc:
+            self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
+
+    def on_tray_toggle(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+        self.root.after(0, self.toggle_window_visibility)
+
+    def on_tray_exit(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+        self.root.after(0, self.exit_app)
+
+    def toggle_window_visibility(self) -> None:
+        if self.root.state() == "withdrawn":
+            self.show_window()
+        else:
+            self.hide_window()
+
+    def show_window(self) -> None:
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        self.root.attributes("-topmost", self.topmost_var.get())
+        self.root.after(50, self.hide_from_taskbar)
+        self.log_debug("INFO window_shown")
+
+    def hide_window(self) -> None:
+        self.save_current_config()
+        self.root.withdraw()
+        self.log_debug("INFO window_hidden_to_tray")
 
     def _poll_events(self) -> None:
         try:
@@ -565,7 +644,7 @@ class TranslatorApp:
         text = str(exc).replace("\n", " ").strip()
         return text[:240] if text else type(exc).__name__
 
-    def on_close(self) -> None:
+    def save_current_config(self) -> None:
         self.config.update(
             {
                 "api_key": self.api_key_var.get().strip(),
@@ -579,7 +658,17 @@ class TranslatorApp:
             }
         )
         save_config(self.config)
+
+    def exit_app(self) -> None:
+        self.is_exiting = True
+        self.save_current_config()
         self.close_http_client()
+        if self.tray_icon is not None:
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+            self.tray_icon = None
         self.root.destroy()
 
 
