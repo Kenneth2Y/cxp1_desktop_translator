@@ -16,7 +16,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "1.5"
+APP_VERSION = "1.7"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -26,6 +26,7 @@ MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 22
 TRANSLATION_LOG = Path(__file__).resolve().parent / "trans_log.txt"
 APP_MARK = "K.Y."
+ACTION_BUTTON_WIDTH = 8
 
 COLOR_BG = "#202020"
 COLOR_PANEL = "#242424"
@@ -199,23 +200,19 @@ class TranslatorApp:
 
         controls = ttk.Frame(self.root, padding=(12, 4, 12, 6))
         controls.grid(row=2, column=0, sticky="ew")
-        controls.columnconfigure(6, weight=1)
+        controls.columnconfigure(5, weight=1)
 
-        self.translate_button = ttk.Button(controls, text="翻译", command=self.start_translation)
+        self.translate_button = ttk.Button(controls, text="翻译", width=ACTION_BUTTON_WIDTH, command=self.start_translation)
         self.translate_button.grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(controls, text="打开历史", command=self.open_history).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(controls, text="字体-", width=7, command=lambda: self.change_font_size(-1)).grid(row=0, column=2, padx=(0, 8))
-        ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=4, padx=(0, 8))
+        ttk.Button(controls, text="历史", width=ACTION_BUTTON_WIDTH, command=self.open_history).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(controls, text="字体-", width=ACTION_BUTTON_WIDTH, command=lambda: self.change_font_size(-1)).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(controls, text="字体+", width=ACTION_BUTTON_WIDTH, command=lambda: self.change_font_size(1)).grid(row=0, column=3, padx=(0, 8))
+        ttk.Button(controls, text="退出", width=ACTION_BUTTON_WIDTH, command=self.on_close).grid(row=0, column=4, padx=(0, 8))
+        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=5, sticky="w")
         ttk.Label(controls, text=f"v{APP_VERSION}  {APP_MARK}", style="Brand.TLabel").grid(row=0, column=6, sticky="e")
 
-        status_bar = ttk.Frame(self.root, padding=(12, 0, 12, 4))
-        status_bar.grid(row=3, column=0, sticky="ew")
-        status_bar.columnconfigure(0, weight=1)
-        ttk.Label(status_bar, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
-
         self.debug_frame = ttk.LabelFrame(self.root, text="Debug", padding=(12, 6, 12, 10))
-        self.debug_frame.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 10))
+        self.debug_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 10))
         self.debug_frame.columnconfigure(0, weight=1)
         self.debug_frame.rowconfigure(0, weight=1)
         self.debug_text = self._create_text_widget(self.debug_frame, height=8, state="disabled", mono=True)
