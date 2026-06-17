@@ -143,6 +143,8 @@ class TranslatorApp:
         settings.grid(row=0, column=0, sticky="ew")
         settings.columnconfigure(1, weight=1)
         settings.columnconfigure(3, weight=1)
+        settings.columnconfigure(4, minsize=110)
+        settings.columnconfigure(5, minsize=96)
 
         ttk.Label(settings, text="POE API Key").grid(row=0, column=0, sticky="w", padx=(0, 8))
         api_entry = ttk.Entry(settings, textvariable=self.api_key_var, show="*", width=34)
@@ -150,12 +152,13 @@ class TranslatorApp:
 
         ttk.Label(settings, text="模型").grid(row=0, column=2, sticky="w", padx=(0, 8))
         ttk.Entry(settings, textvariable=self.model_var, width=24).grid(row=0, column=3, sticky="ew", padx=(0, 10))
-        ttk.Button(settings, text="应用", command=self.apply_settings).grid(row=0, column=4, sticky="e")
+        ttk.Button(settings, text="应用", command=self.apply_settings).grid(row=0, column=4, columnspan=2, sticky="ew")
 
         proxy_check = ttk.Checkbutton(settings, text="使用代理", variable=self.proxy_enabled_var, command=self.apply_settings)
         proxy_check.grid(row=1, column=0, sticky="w", pady=(8, 0), padx=(0, 8))
         ttk.Entry(settings, textvariable=self.proxy_url_var).grid(row=1, column=1, columnspan=3, sticky="ew", pady=(8, 0), padx=(0, 10))
-        ttk.Checkbutton(settings, text="Debug", variable=self.debug_enabled_var, command=self.toggle_debug).grid(row=1, column=4, sticky="e", pady=(8, 0))
+        ttk.Checkbutton(settings, text="置顶", variable=self.topmost_var, command=self.toggle_topmost).grid(row=1, column=4, sticky="w", pady=(8, 0), padx=(0, 8))
+        ttk.Checkbutton(settings, text="Debug", variable=self.debug_enabled_var, command=self.toggle_debug).grid(row=1, column=5, sticky="e", pady=(8, 0))
 
         body = ttk.Frame(self.root, padding=(12, 6, 12, 6))
         body.grid(row=1, column=0, sticky="nsew")
@@ -201,15 +204,18 @@ class TranslatorApp:
         self.translate_button = ttk.Button(controls, text="翻译", command=self.start_translation)
         self.translate_button.grid(row=0, column=0, padx=(0, 8))
         ttk.Button(controls, text="打开历史", command=self.open_history).grid(row=0, column=1, padx=(0, 8))
-        ttk.Checkbutton(controls, text="置顶", variable=self.topmost_var, command=self.toggle_topmost).grid(row=0, column=2, padx=(0, 8))
-        ttk.Button(controls, text="字体-", width=7, command=lambda: self.change_font_size(-1)).grid(row=0, column=3, padx=(0, 8))
-        ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=4, padx=(0, 8))
-        ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=5, padx=(0, 8))
-        ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=6, sticky="w")
-        ttk.Label(controls, text=f"v{APP_VERSION}  {APP_MARK}", style="Brand.TLabel").grid(row=0, column=7, sticky="e")
+        ttk.Button(controls, text="字体-", width=7, command=lambda: self.change_font_size(-1)).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=3, padx=(0, 8))
+        ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=4, padx=(0, 8))
+        ttk.Label(controls, text=f"v{APP_VERSION}  {APP_MARK}", style="Brand.TLabel").grid(row=0, column=6, sticky="e")
+
+        status_bar = ttk.Frame(self.root, padding=(12, 0, 12, 4))
+        status_bar.grid(row=3, column=0, sticky="ew")
+        status_bar.columnconfigure(0, weight=1)
+        ttk.Label(status_bar, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
 
         self.debug_frame = ttk.LabelFrame(self.root, text="Debug", padding=(12, 6, 12, 10))
-        self.debug_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 10))
+        self.debug_frame.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 10))
         self.debug_frame.columnconfigure(0, weight=1)
         self.debug_frame.rowconfigure(0, weight=1)
         self.debug_text = self._create_text_widget(self.debug_frame, height=8, state="disabled", mono=True)
@@ -416,8 +422,7 @@ class TranslatorApp:
 
     def clear_input(self) -> None:
         self.input_text.delete("1.0", "end")
-        self.output_text.delete("1.0", "end")
-        self.status_var.set("已清空")
+        self.status_var.set("原文已清空")
         self.log_debug("INFO input_cleared")
 
     def copy_output(self) -> None:
