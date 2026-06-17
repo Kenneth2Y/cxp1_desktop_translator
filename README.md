@@ -29,6 +29,22 @@ python -m pip install -r requirements.txt
 
 不要把真实 API Key 写进源码或提交到 GitHub。
 
+## 双击启动
+
+项目里提供了 `start_translator.vbs`，双击它可以无黑色命令行窗口启动程序。它会使用项目虚拟环境里的：
+
+```text
+.venv\Scripts\pythonw.exe
+```
+
+如果想开机自启动，可以给 `start_translator.vbs` 创建快捷方式，然后把快捷方式放进 Windows 启动文件夹。启动文件夹可通过运行：
+
+```text
+shell:startup
+```
+
+打开。
+
 ## 界面功能
 
 - “置顶”可以让窗口保持在其他窗口前面，再次取消勾选即可恢复。
