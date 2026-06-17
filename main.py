@@ -16,6 +16,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
+APP_VERSION = "1.5"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -133,7 +134,7 @@ class TranslatorApp:
         self._poll_events()
 
     def _build_ui(self) -> None:
-        self.root.title("英汉 / 汉英翻译器")
+        self.root.title(f"英汉 / 汉英翻译器 v{APP_VERSION}")
         self.root.configure(bg=COLOR_BG)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
@@ -162,8 +163,16 @@ class TranslatorApp:
         body.columnconfigure(1, weight=1)
         body.rowconfigure(1, weight=1)
 
-        ttk.Label(body, text="原文").grid(row=0, column=0, sticky="w")
-        ttk.Label(body, text="译文").grid(row=0, column=1, sticky="w", padx=(8, 0))
+        input_header = ttk.Frame(body)
+        output_header = ttk.Frame(body)
+        input_header.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        output_header.grid(row=0, column=1, sticky="ew", padx=(8, 0))
+        input_header.columnconfigure(0, weight=1)
+        output_header.columnconfigure(0, weight=1)
+        ttk.Label(input_header, text="原文").grid(row=0, column=0, sticky="w")
+        ttk.Button(input_header, text="清空", width=6, command=self.clear_input).grid(row=0, column=1, sticky="e")
+        ttk.Label(output_header, text="译文").grid(row=0, column=0, sticky="w")
+        ttk.Button(output_header, text="复制", width=6, command=self.copy_output).grid(row=0, column=1, sticky="e")
 
         input_frame = ttk.Frame(body)
         output_frame = ttk.Frame(body)
@@ -197,7 +206,7 @@ class TranslatorApp:
         ttk.Button(controls, text="字体+", width=7, command=lambda: self.change_font_size(1)).grid(row=0, column=4, padx=(0, 8))
         ttk.Button(controls, text="退出", command=self.on_close).grid(row=0, column=5, padx=(0, 8))
         ttk.Label(controls, textvariable=self.status_var).grid(row=0, column=6, sticky="w")
-        ttk.Label(controls, text=APP_MARK, style="Brand.TLabel").grid(row=0, column=7, sticky="e")
+        ttk.Label(controls, text=f"v{APP_VERSION}  {APP_MARK}", style="Brand.TLabel").grid(row=0, column=7, sticky="e")
 
         self.debug_frame = ttk.LabelFrame(self.root, text="Debug", padding=(12, 6, 12, 10))
         self.debug_frame.grid(row=3, column=0, sticky="nsew", padx=12, pady=(0, 10))
@@ -404,6 +413,24 @@ class TranslatorApp:
         else:
             self.debug_frame.grid_remove()
         self.apply_settings()
+
+    def clear_input(self) -> None:
+        self.input_text.delete("1.0", "end")
+        self.output_text.delete("1.0", "end")
+        self.status_var.set("已清空")
+        self.log_debug("INFO input_cleared")
+
+    def copy_output(self) -> None:
+        translated = self.output_text.get("1.0", "end").strip()
+        if not translated:
+            self.status_var.set("没有可复制的译文")
+            self.log_debug("ERROR copy_empty_output")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(translated)
+        self.root.update()
+        self.status_var.set("译文已复制")
+        self.log_debug(f"INFO output_copied chars={len(translated)}")
 
     def start_translation(self) -> None:
         source_text = self.input_text.get("1.0", "end").strip()
