@@ -20,13 +20,11 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.5"
+APP_VERSION = "1.8"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
 DEFAULT_GEOMETRY = "980x720+120+120"
-MIN_WINDOW_WIDTH = 760
-MIN_WINDOW_HEIGHT = 480
 DEFAULT_FONT_SIZE = 11
 MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 22
@@ -112,19 +110,6 @@ def mask_key(api_key: str) -> str:
     return f"present ****{api_key[-4:]}"
 
 
-def sanitize_geometry(geometry: object, fallback: str = DEFAULT_GEOMETRY) -> str:
-    text = str(geometry or "").strip()
-    match = re.match(r"^(\d+)x(\d+)([+-]\d+)([+-]\d+)$", text)
-    if not match:
-        return fallback
-
-    width = int(match.group(1))
-    height = int(match.group(2))
-    if width < MIN_WINDOW_WIDTH or height < MIN_WINDOW_HEIGHT:
-        return fallback
-    return text
-
-
 class TranslatorApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -134,7 +119,6 @@ class TranslatorApp:
         self.active_http_client: httpx.Client | None = None
         self.tray_icon: pystray.Icon | None = None
         self.is_exiting = False
-        self.geometry_save_job: str | None = None
 
         self.api_key_var = tk.StringVar(value=str(self.config.get("api_key", "")))
         self.model_var = tk.StringVar(value=str(self.config.get("model", DEFAULT_MODEL)))
@@ -342,12 +326,7 @@ class TranslatorApp:
         )
 
     def _apply_window_settings(self) -> None:
-        raw_geometry = self.config.get("window_geometry", DEFAULT_GEOMETRY)
-        geometry = sanitize_geometry(raw_geometry)
-        if geometry != raw_geometry:
-            self.config["window_geometry"] = geometry
-            save_config(self.config)
-            self.log_debug(f"INFO window_geometry_reset from={raw_geometry} to={geometry}")
+        geometry = str(self.config.get("window_geometry", DEFAULT_GEOMETRY))
         self.root.geometry(geometry)
         self.root.resizable(False, False)
         self.root.attributes("-topmost", self.topmost_var.get())
@@ -355,11 +334,6 @@ class TranslatorApp:
     def _bind_events(self) -> None:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.input_text.bind("<Control-Return>", lambda _event: self.start_translation())
-        self.root.bind("<Configure>", self.on_configure)
-
-    def log_startup_debug(self, message: str) -> None:
-        if hasattr(self, "debug_text"):
-            self.log_debug(message)
 
     def setup_tray(self) -> None:
         try:
@@ -370,7 +344,7 @@ class TranslatorApp:
             )
             self.tray_icon = pystray.Icon(APP_NAME, image, f"英汉 / 汉英翻译器 v{APP_VERSION}", menu)
             self.tray_icon.run_detached()
-            self.schedule_taskbar_cleanup()
+            self.hide_from_taskbar()
             self.log_debug("INFO tray_started")
         except Exception as exc:
             self.log_debug(f"ERROR tray_failed {self.short_error(exc)}")
@@ -385,65 +359,27 @@ class TranslatorApp:
     def hide_from_taskbar(self) -> None:
         if sys.platform != "win32":
             return
-        if self.root.state() == "withdrawn":
-            return
         try:
             self.root.update_idletasks()
             hwnd = self.root.winfo_id()
-            self.delete_taskbar_tab(hwnd)
+            user32 = ctypes.windll.user32
+            gwl_exstyle = -20
+            ws_ex_toolwindow = 0x00000080
+            ws_ex_appwindow = 0x00040000
+            get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+            set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            style = get_window_long(hwnd, gwl_exstyle)
+            style = (style & ~ws_ex_appwindow) | ws_ex_toolwindow
+            set_window_long(hwnd, gwl_exstyle, style)
+            swp_nosize = 0x0001
+            swp_nomove = 0x0002
+            swp_nozorder = 0x0004
+            swp_framechanged = 0x0020
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, swp_nosize | swp_nomove | swp_nozorder | swp_framechanged)
+            self.root.withdraw()
+            self.root.after(10, self.root.deiconify)
         except Exception as exc:
             self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
-
-    def schedule_taskbar_cleanup(self) -> None:
-        if sys.platform != "win32":
-            return
-        for delay_ms in (150, 500, 1200, 2500):
-            self.root.after(delay_ms, self.hide_from_taskbar)
-
-    def delete_taskbar_tab(self, hwnd: int) -> None:
-        clsid_taskbar_list = self.GUID("{56FDF344-FD6D-11d0-958A-006097C9A090}")
-        iid_itaskbar_list = self.GUID("{56FDF342-FD6D-11d0-958A-006097C9A090}")
-        taskbar = ctypes.c_void_p()
-        ctypes.windll.ole32.CoInitialize(None)
-        result = ctypes.windll.ole32.CoCreateInstance(
-            ctypes.byref(clsid_taskbar_list),
-            None,
-            1,
-            ctypes.byref(iid_itaskbar_list),
-            ctypes.byref(taskbar),
-        )
-        if result != 0 or not taskbar.value:
-            raise OSError(f"CoCreateInstance(ITaskbarList) failed: 0x{result & 0xFFFFFFFF:08X}")
-
-        vtable = ctypes.cast(taskbar, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
-        hr_init = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
-        delete_tab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(vtable[5])
-        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
-        try:
-            result = hr_init(taskbar)
-            if result != 0:
-                raise OSError(f"ITaskbarList.HrInit failed: 0x{result & 0xFFFFFFFF:08X}")
-            result = delete_tab(taskbar, ctypes.c_void_p(hwnd))
-            if result != 0:
-                raise OSError(f"ITaskbarList.DeleteTab failed: 0x{result & 0xFFFFFFFF:08X}")
-        finally:
-            release(taskbar)
-
-    class GUID(ctypes.Structure):
-        _fields_ = [
-            ("Data1", ctypes.c_ulong),
-            ("Data2", ctypes.c_ushort),
-            ("Data3", ctypes.c_ushort),
-            ("Data4", ctypes.c_ubyte * 8),
-        ]
-
-        def __init__(self, guid_string: str) -> None:
-            import uuid
-
-            guid = uuid.UUID(guid_string)
-            fields = guid.fields
-            data4 = (ctypes.c_ubyte * 8)(fields[3], fields[4], *guid.node.to_bytes(6, "big"))
-            super().__init__(fields[0], fields[1], fields[2], data4)
 
     def on_tray_toggle(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.root.after(0, self.toggle_window_visibility)
@@ -458,42 +394,17 @@ class TranslatorApp:
             self.hide_window()
 
     def show_window(self) -> None:
-        self.root.state("normal")
         self.root.deiconify()
-        self.root.update_idletasks()
         self.root.lift()
         self.root.focus_force()
         self.root.attributes("-topmost", self.topmost_var.get())
-        self.schedule_taskbar_cleanup()
+        self.root.after(50, self.hide_from_taskbar)
         self.log_debug("INFO window_shown")
 
     def hide_window(self) -> None:
         self.save_current_config()
         self.root.withdraw()
         self.log_debug("INFO window_hidden_to_tray")
-
-    def on_configure(self, event: tk.Event) -> None:
-        if event.widget is not self.root or self.root.state() == "withdrawn":
-            return
-        geometry = sanitize_geometry(self.root.geometry(), "")
-        if not geometry:
-            return
-        if self.geometry_save_job is not None:
-            self.root.after_cancel(self.geometry_save_job)
-        self.geometry_save_job = self.root.after(700, self.save_window_geometry_from_current)
-
-    def save_window_geometry_from_current(self) -> None:
-        self.geometry_save_job = None
-        if self.root.state() == "withdrawn":
-            return
-        current_geometry = sanitize_geometry(self.root.geometry(), "")
-        if not current_geometry:
-            return
-        if self.config.get("window_geometry") == current_geometry:
-            return
-        self.config["window_geometry"] = current_geometry
-        save_config(self.config)
-        self.log_debug(f"INFO window_geometry_saved {current_geometry}")
 
     def _poll_events(self) -> None:
         try:
@@ -517,7 +428,7 @@ class TranslatorApp:
                 "proxy_enabled": self.proxy_enabled_var.get(),
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
-                "window_geometry": sanitize_geometry(self.root.geometry(), str(self.config.get("window_geometry", DEFAULT_GEOMETRY))),
+                "window_geometry": self.root.geometry(),
                 "font_size": self.font_size,
                 "topmost": self.topmost_var.get(),
             }
@@ -734,7 +645,6 @@ class TranslatorApp:
         return text[:240] if text else type(exc).__name__
 
     def save_current_config(self) -> None:
-        current_geometry = sanitize_geometry(self.root.geometry(), str(self.config.get("window_geometry", DEFAULT_GEOMETRY)))
         self.config.update(
             {
                 "api_key": self.api_key_var.get().strip(),
@@ -742,7 +652,7 @@ class TranslatorApp:
                 "proxy_enabled": self.proxy_enabled_var.get(),
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
-                "window_geometry": current_geometry,
+                "window_geometry": self.root.geometry(),
                 "font_size": self.font_size,
                 "topmost": self.topmost_var.get(),
             }
@@ -751,9 +661,6 @@ class TranslatorApp:
 
     def exit_app(self) -> None:
         self.is_exiting = True
-        if self.geometry_save_job is not None:
-            self.root.after_cancel(self.geometry_save_job)
-            self.geometry_save_job = None
         self.save_current_config()
         self.close_http_client()
         if self.tray_icon is not None:
