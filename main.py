@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.4"
+APP_VERSION = "2.5"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -134,6 +134,7 @@ class TranslatorApp:
         self.active_http_client: httpx.Client | None = None
         self.tray_icon: pystray.Icon | None = None
         self.is_exiting = False
+        self.geometry_save_job: str | None = None
 
         self.api_key_var = tk.StringVar(value=str(self.config.get("api_key", "")))
         self.model_var = tk.StringVar(value=str(self.config.get("model", DEFAULT_MODEL)))
@@ -354,6 +355,7 @@ class TranslatorApp:
     def _bind_events(self) -> None:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.input_text.bind("<Control-Return>", lambda _event: self.start_translation())
+        self.root.bind("<Configure>", self.on_configure)
 
     def log_startup_debug(self, message: str) -> None:
         if hasattr(self, "debug_text"):
@@ -368,7 +370,7 @@ class TranslatorApp:
             )
             self.tray_icon = pystray.Icon(APP_NAME, image, f"英汉 / 汉英翻译器 v{APP_VERSION}", menu)
             self.tray_icon.run_detached()
-            self.hide_from_taskbar()
+            self.schedule_taskbar_cleanup()
             self.log_debug("INFO tray_started")
         except Exception as exc:
             self.log_debug(f"ERROR tray_failed {self.short_error(exc)}")
@@ -383,12 +385,20 @@ class TranslatorApp:
     def hide_from_taskbar(self) -> None:
         if sys.platform != "win32":
             return
+        if self.root.state() == "withdrawn":
+            return
         try:
             self.root.update_idletasks()
             hwnd = self.root.winfo_id()
             self.delete_taskbar_tab(hwnd)
         except Exception as exc:
             self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
+
+    def schedule_taskbar_cleanup(self) -> None:
+        if sys.platform != "win32":
+            return
+        for delay_ms in (150, 500, 1200, 2500):
+            self.root.after(delay_ms, self.hide_from_taskbar)
 
     def delete_taskbar_tab(self, hwnd: int) -> None:
         clsid_taskbar_list = self.GUID("{56FDF344-FD6D-11d0-958A-006097C9A090}")
@@ -454,13 +464,36 @@ class TranslatorApp:
         self.root.lift()
         self.root.focus_force()
         self.root.attributes("-topmost", self.topmost_var.get())
-        self.root.after(80, self.hide_from_taskbar)
+        self.schedule_taskbar_cleanup()
         self.log_debug("INFO window_shown")
 
     def hide_window(self) -> None:
         self.save_current_config()
         self.root.withdraw()
         self.log_debug("INFO window_hidden_to_tray")
+
+    def on_configure(self, event: tk.Event) -> None:
+        if event.widget is not self.root or self.root.state() == "withdrawn":
+            return
+        geometry = sanitize_geometry(self.root.geometry(), "")
+        if not geometry:
+            return
+        if self.geometry_save_job is not None:
+            self.root.after_cancel(self.geometry_save_job)
+        self.geometry_save_job = self.root.after(700, self.save_window_geometry_from_current)
+
+    def save_window_geometry_from_current(self) -> None:
+        self.geometry_save_job = None
+        if self.root.state() == "withdrawn":
+            return
+        current_geometry = sanitize_geometry(self.root.geometry(), "")
+        if not current_geometry:
+            return
+        if self.config.get("window_geometry") == current_geometry:
+            return
+        self.config["window_geometry"] = current_geometry
+        save_config(self.config)
+        self.log_debug(f"INFO window_geometry_saved {current_geometry}")
 
     def _poll_events(self) -> None:
         try:
@@ -484,7 +517,7 @@ class TranslatorApp:
                 "proxy_enabled": self.proxy_enabled_var.get(),
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
-                "window_geometry": self.root.geometry(),
+                "window_geometry": sanitize_geometry(self.root.geometry(), str(self.config.get("window_geometry", DEFAULT_GEOMETRY))),
                 "font_size": self.font_size,
                 "topmost": self.topmost_var.get(),
             }
@@ -718,6 +751,9 @@ class TranslatorApp:
 
     def exit_app(self) -> None:
         self.is_exiting = True
+        if self.geometry_save_job is not None:
+            self.root.after_cancel(self.geometry_save_job)
+            self.geometry_save_job = None
         self.save_current_config()
         self.close_http_client()
         if self.tray_icon is not None:
