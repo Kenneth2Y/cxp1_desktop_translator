@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -111,9 +111,8 @@ def mask_key(api_key: str) -> str:
 
 
 class TranslatorApp:
-    def __init__(self, root: tk.Toplevel, app_root: tk.Tk | None = None) -> None:
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.app_root = app_root or root
         self.config = load_config()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.active_client: OpenAI | None = None
@@ -367,34 +366,54 @@ class TranslatorApp:
         try:
             self.root.update_idletasks()
             hwnd = self.root.winfo_id()
-            owner_hwnd = self.app_root.winfo_id() if self.app_root is not self.root else 0
-            user32 = ctypes.windll.user32
-            gwl_exstyle = -20
-            gwlp_hwndparent = -8
-            ws_ex_appwindow = 0x00040000
-            get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
-            set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
-            if owner_hwnd:
-                set_window_long(hwnd, gwlp_hwndparent, owner_hwnd)
-            style = get_window_long(hwnd, gwl_exstyle)
-            style = style & ~ws_ex_appwindow
-            set_window_long(hwnd, gwl_exstyle, style)
-            swp_nosize = 0x0001
-            swp_nomove = 0x0002
-            swp_nozorder = 0x0004
-            swp_framechanged = 0x0020
-            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, swp_nosize | swp_nomove | swp_nozorder | swp_framechanged)
-            if self.root.state() != "withdrawn":
-                self.root.withdraw()
-                self.root.after(20, self.restore_after_taskbar_refresh)
+            self.delete_taskbar_tab(hwnd)
         except Exception as exc:
             self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
 
-    def restore_after_taskbar_refresh(self) -> None:
-        self.root.deiconify()
-        self.root.update_idletasks()
-        self.root.lift()
-        self.root.attributes("-topmost", self.topmost_var.get())
+    def delete_taskbar_tab(self, hwnd: int) -> None:
+        clsid_taskbar_list = self.GUID("{56FDF344-FD6D-11d0-958A-006097C9A090}")
+        iid_itaskbar_list = self.GUID("{56FDF342-FD6D-11d0-958A-006097C9A090}")
+        taskbar = ctypes.c_void_p()
+        ctypes.windll.ole32.CoInitialize(None)
+        result = ctypes.windll.ole32.CoCreateInstance(
+            ctypes.byref(clsid_taskbar_list),
+            None,
+            1,
+            ctypes.byref(iid_itaskbar_list),
+            ctypes.byref(taskbar),
+        )
+        if result != 0 or not taskbar.value:
+            raise OSError(f"CoCreateInstance(ITaskbarList) failed: 0x{result & 0xFFFFFFFF:08X}")
+
+        vtable = ctypes.cast(taskbar, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        hr_init = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
+        delete_tab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(vtable[5])
+        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
+        try:
+            result = hr_init(taskbar)
+            if result != 0:
+                raise OSError(f"ITaskbarList.HrInit failed: 0x{result & 0xFFFFFFFF:08X}")
+            result = delete_tab(taskbar, ctypes.c_void_p(hwnd))
+            if result != 0:
+                raise OSError(f"ITaskbarList.DeleteTab failed: 0x{result & 0xFFFFFFFF:08X}")
+        finally:
+            release(taskbar)
+
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+        def __init__(self, guid_string: str) -> None:
+            import uuid
+
+            guid = uuid.UUID(guid_string)
+            fields = guid.fields
+            data4 = (ctypes.c_ubyte * 8)(fields[3], fields[4], *guid.node.to_bytes(6, "big"))
+            super().__init__(fields[0], fields[1], fields[2], data4)
 
     def on_tray_toggle(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.root.after(0, self.toggle_window_visibility)
@@ -687,16 +706,12 @@ class TranslatorApp:
                 pass
             self.tray_icon = None
         self.root.destroy()
-        if self.app_root is not self.root:
-            self.app_root.destroy()
 
 
 def main() -> None:
-    app_root = tk.Tk()
-    app_root.withdraw()
-    window = tk.Toplevel(app_root)
-    TranslatorApp(window, app_root)
-    app_root.mainloop()
+    root = tk.Tk()
+    TranslatorApp(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
