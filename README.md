@@ -2,7 +2,7 @@
 
 一个轻量的 Python Tkinter 桌面翻译小工具。输入英文输出中文，输入中文输出英文。默认使用 POE 的 OpenAI-compatible Chat Completions API 和 `gpt-5.3-instant`。
 
-当前版本：`v2.1`
+当前版本：`v2.2`
 
 ## 安装
 

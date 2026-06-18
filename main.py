@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -367,24 +367,34 @@ class TranslatorApp:
         try:
             self.root.update_idletasks()
             hwnd = self.root.winfo_id()
+            owner_hwnd = self.app_root.winfo_id() if self.app_root is not self.root else 0
             user32 = ctypes.windll.user32
             gwl_exstyle = -20
-            ws_ex_toolwindow = 0x00000080
+            gwlp_hwndparent = -8
             ws_ex_appwindow = 0x00040000
             get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
             set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            if owner_hwnd:
+                set_window_long(hwnd, gwlp_hwndparent, owner_hwnd)
             style = get_window_long(hwnd, gwl_exstyle)
-            style = (style & ~ws_ex_appwindow) | ws_ex_toolwindow
+            style = style & ~ws_ex_appwindow
             set_window_long(hwnd, gwl_exstyle, style)
             swp_nosize = 0x0001
             swp_nomove = 0x0002
             swp_nozorder = 0x0004
             swp_framechanged = 0x0020
             user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, swp_nosize | swp_nomove | swp_nozorder | swp_framechanged)
-            self.root.withdraw()
-            self.root.after(10, self.root.deiconify)
+            if self.root.state() != "withdrawn":
+                self.root.withdraw()
+                self.root.after(20, self.restore_after_taskbar_refresh)
         except Exception as exc:
             self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
+
+    def restore_after_taskbar_refresh(self) -> None:
+        self.root.deiconify()
+        self.root.update_idletasks()
+        self.root.lift()
+        self.root.attributes("-topmost", self.topmost_var.get())
 
     def on_tray_toggle(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.root.after(0, self.toggle_window_visibility)
