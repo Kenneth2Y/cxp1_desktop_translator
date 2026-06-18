@@ -20,11 +20,13 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.3"
+APP_VERSION = "2.4"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
 DEFAULT_GEOMETRY = "980x720+120+120"
+MIN_WINDOW_WIDTH = 760
+MIN_WINDOW_HEIGHT = 480
 DEFAULT_FONT_SIZE = 11
 MIN_FONT_SIZE = 9
 MAX_FONT_SIZE = 22
@@ -108,6 +110,19 @@ def mask_key(api_key: str) -> str:
     if len(api_key) <= 4:
         return "****"
     return f"present ****{api_key[-4:]}"
+
+
+def sanitize_geometry(geometry: object, fallback: str = DEFAULT_GEOMETRY) -> str:
+    text = str(geometry or "").strip()
+    match = re.match(r"^(\d+)x(\d+)([+-]\d+)([+-]\d+)$", text)
+    if not match:
+        return fallback
+
+    width = int(match.group(1))
+    height = int(match.group(2))
+    if width < MIN_WINDOW_WIDTH or height < MIN_WINDOW_HEIGHT:
+        return fallback
+    return text
 
 
 class TranslatorApp:
@@ -326,7 +341,12 @@ class TranslatorApp:
         )
 
     def _apply_window_settings(self) -> None:
-        geometry = str(self.config.get("window_geometry", DEFAULT_GEOMETRY))
+        raw_geometry = self.config.get("window_geometry", DEFAULT_GEOMETRY)
+        geometry = sanitize_geometry(raw_geometry)
+        if geometry != raw_geometry:
+            self.config["window_geometry"] = geometry
+            save_config(self.config)
+            self.log_debug(f"INFO window_geometry_reset from={raw_geometry} to={geometry}")
         self.root.geometry(geometry)
         self.root.resizable(False, False)
         self.root.attributes("-topmost", self.topmost_var.get())
@@ -681,6 +701,7 @@ class TranslatorApp:
         return text[:240] if text else type(exc).__name__
 
     def save_current_config(self) -> None:
+        current_geometry = sanitize_geometry(self.root.geometry(), str(self.config.get("window_geometry", DEFAULT_GEOMETRY)))
         self.config.update(
             {
                 "api_key": self.api_key_var.get().strip(),
@@ -688,7 +709,7 @@ class TranslatorApp:
                 "proxy_enabled": self.proxy_enabled_var.get(),
                 "proxy_url": self.proxy_url_var.get().strip() or DEFAULT_PROXY,
                 "debug_enabled": self.debug_enabled_var.get(),
-                "window_geometry": self.root.geometry(),
+                "window_geometry": current_geometry,
                 "font_size": self.font_size,
                 "topmost": self.topmost_var.get(),
             }
