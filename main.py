@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "1.8"
+APP_VERSION = "1.8.1"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -344,7 +344,7 @@ class TranslatorApp:
             )
             self.tray_icon = pystray.Icon(APP_NAME, image, f"英汉 / 汉英翻译器 v{APP_VERSION}", menu)
             self.tray_icon.run_detached()
-            self.hide_from_taskbar()
+            self.schedule_taskbar_cleanup()
             self.log_debug("INFO tray_started")
         except Exception as exc:
             self.log_debug(f"ERROR tray_failed {self.short_error(exc)}")
@@ -359,27 +359,72 @@ class TranslatorApp:
     def hide_from_taskbar(self) -> None:
         if sys.platform != "win32":
             return
+        if self.root.state() == "withdrawn":
+            return
         try:
-            self.root.update_idletasks()
-            hwnd = self.root.winfo_id()
-            user32 = ctypes.windll.user32
-            gwl_exstyle = -20
-            ws_ex_toolwindow = 0x00000080
-            ws_ex_appwindow = 0x00040000
-            get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
-            set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
-            style = get_window_long(hwnd, gwl_exstyle)
-            style = (style & ~ws_ex_appwindow) | ws_ex_toolwindow
-            set_window_long(hwnd, gwl_exstyle, style)
-            swp_nosize = 0x0001
-            swp_nomove = 0x0002
-            swp_nozorder = 0x0004
-            swp_framechanged = 0x0020
-            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, swp_nosize | swp_nomove | swp_nozorder | swp_framechanged)
-            self.root.withdraw()
-            self.root.after(10, self.root.deiconify)
+            self.delete_taskbar_tab(self.get_root_hwnd())
         except Exception as exc:
             self.log_debug(f"ERROR taskbar_hide_failed {self.short_error(exc)}")
+
+    def schedule_taskbar_cleanup(self) -> None:
+        if sys.platform != "win32":
+            return
+        for delay_ms in (150, 500, 1200, 2500):
+            self.root.after(delay_ms, self.hide_from_taskbar)
+
+    def get_root_hwnd(self) -> int:
+        self.root.update_idletasks()
+        hwnd = self.root.winfo_id()
+        user32 = ctypes.windll.user32
+        ga_root = 2
+        root_hwnd = user32.GetAncestor(hwnd, ga_root)
+        return root_hwnd or hwnd
+
+    def delete_taskbar_tab(self, hwnd: int) -> None:
+        clsid_taskbar_list = self.GUID("{56FDF344-FD6D-11d0-958A-006097C9A090}")
+        iid_itaskbar_list = self.GUID("{56FDF342-FD6D-11d0-958A-006097C9A090}")
+        taskbar = ctypes.c_void_p()
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize(None)
+        result = ole32.CoCreateInstance(
+            ctypes.byref(clsid_taskbar_list),
+            None,
+            1,
+            ctypes.byref(iid_itaskbar_list),
+            ctypes.byref(taskbar),
+        )
+        if result != 0 or not taskbar.value:
+            raise OSError(f"CoCreateInstance(ITaskbarList) failed: 0x{result & 0xFFFFFFFF:08X}")
+
+        vtable = ctypes.cast(taskbar, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        hr_init = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
+        delete_tab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(vtable[5])
+        release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(vtable[2])
+        try:
+            result = hr_init(taskbar)
+            if result != 0:
+                raise OSError(f"ITaskbarList.HrInit failed: 0x{result & 0xFFFFFFFF:08X}")
+            result = delete_tab(taskbar, ctypes.c_void_p(hwnd))
+            if result != 0:
+                raise OSError(f"ITaskbarList.DeleteTab failed: 0x{result & 0xFFFFFFFF:08X}")
+        finally:
+            release(taskbar)
+
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", ctypes.c_ulong),
+            ("Data2", ctypes.c_ushort),
+            ("Data3", ctypes.c_ushort),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+        def __init__(self, guid_string: str) -> None:
+            import uuid
+
+            guid = uuid.UUID(guid_string)
+            fields = guid.fields
+            data4 = (ctypes.c_ubyte * 8)(fields[3], fields[4], *guid.node.to_bytes(6, "big"))
+            super().__init__(fields[0], fields[1], fields[2], data4)
 
     def on_tray_toggle(self, _icon: pystray.Icon, _item: pystray.MenuItem) -> None:
         self.root.after(0, self.toggle_window_visibility)
@@ -398,7 +443,7 @@ class TranslatorApp:
         self.root.lift()
         self.root.focus_force()
         self.root.attributes("-topmost", self.topmost_var.get())
-        self.root.after(50, self.hide_from_taskbar)
+        self.schedule_taskbar_cleanup()
         self.log_debug("INFO window_shown")
 
     def hide_window(self) -> None:
