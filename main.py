@@ -20,7 +20,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, Authenti
 
 
 APP_NAME = "cxp1_desktop_translator"
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
 BASE_URL = "https://api.poe.com/v1"
 DEFAULT_MODEL = "gpt-5.3-instant"
 DEFAULT_PROXY = "socks5://127.0.0.1:10808"
@@ -111,8 +111,9 @@ def mask_key(api_key: str) -> str:
 
 
 class TranslatorApp:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Toplevel, app_root: tk.Tk | None = None) -> None:
         self.root = root
+        self.app_root = app_root or root
         self.config = load_config()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.active_client: OpenAI | None = None
@@ -330,19 +331,10 @@ class TranslatorApp:
         self.root.geometry(geometry)
         self.root.resizable(False, False)
         self.root.attributes("-topmost", self.topmost_var.get())
-        self.apply_toolwindow_style()
 
     def _bind_events(self) -> None:
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.input_text.bind("<Control-Return>", lambda _event: self.start_translation())
-
-    def apply_toolwindow_style(self) -> None:
-        if sys.platform != "win32":
-            return
-        try:
-            self.root.attributes("-toolwindow", True)
-        except tk.TclError as exc:
-            self.log_startup_debug(f"ERROR toolwindow_failed {self.short_error(exc)}")
 
     def log_startup_debug(self, message: str) -> None:
         if hasattr(self, "debug_text"):
@@ -413,7 +405,6 @@ class TranslatorApp:
         self.root.lift()
         self.root.focus_force()
         self.root.attributes("-topmost", self.topmost_var.get())
-        self.apply_toolwindow_style()
         self.root.after(80, self.hide_from_taskbar)
         self.log_debug("INFO window_shown")
 
@@ -686,12 +677,16 @@ class TranslatorApp:
                 pass
             self.tray_icon = None
         self.root.destroy()
+        if self.app_root is not self.root:
+            self.app_root.destroy()
 
 
 def main() -> None:
-    root = tk.Tk()
-    TranslatorApp(root)
-    root.mainloop()
+    app_root = tk.Tk()
+    app_root.withdraw()
+    window = tk.Toplevel(app_root)
+    TranslatorApp(window, app_root)
+    app_root.mainloop()
 
 
 if __name__ == "__main__":
